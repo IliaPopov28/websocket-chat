@@ -20,7 +20,8 @@
             flex-direction: column;
         }
 
-        #login-screen {
+        /* --- Auth screen --- */
+        #auth-screen {
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -28,14 +29,21 @@
             height: 100vh;
         }
 
-        #login-screen h1 {
-            margin-bottom: 20px;
+        #auth-screen h1 {
+            margin-bottom: 24px;
             color: #e94560;
         }
 
-        #login-screen input {
+        #auth-form {
+            display: flex;
+            flex-direction: column;
+            width: 300px;
+            gap: 12px;
+        }
+
+        #auth-form input {
             padding: 10px 16px;
-            font-size: 16px;
+            font-size: 14px;
             border: 2px solid #16213e;
             border-radius: 6px;
             background: #0f3460;
@@ -43,12 +51,11 @@
             outline: none;
         }
 
-        #login-screen input:focus {
+        #auth-form input:focus {
             border-color: #e94560;
         }
 
-        #login-screen button {
-            margin-top: 12px;
+        #auth-form button {
             padding: 10px 24px;
             font-size: 16px;
             border: none;
@@ -58,10 +65,31 @@
             cursor: pointer;
         }
 
-        #login-screen button:hover {
+        #auth-form button:hover {
             background: #c73650;
         }
 
+        #auth-toggle {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        #auth-toggle a {
+            color: #e94560;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        #auth-error {
+            color: #f44336;
+            font-size: 13px;
+            text-align: center;
+            min-height: 20px;
+        }
+
+        /* --- Chat screen --- */
         #chat-screen {
             display: none;
             flex: 1;
@@ -242,31 +270,31 @@
         #send-btn:hover {
             background: #c73650;
         }
-
-        #private-target {
-            padding: 10px;
-            border: none;
-            border-radius: 6px;
-            background: #0f3460;
-            color: #eee;
-            font-size: 14px;
-            width: 140px;
-        }
     </style>
 </head>
 <body>
 
-<div id="login-screen">
+<!-- Auth screen -->
+<div id="auth-screen">
     <h1>WebSocket Chat</h1>
-    <input type="text" id="nickname-input" placeholder="Enter your nickname..." maxlength="20">
-    <span id="nick-error" style="color: #f44336; font-size: 14px; margin-top: 8px; display: none;"></span>
-    <button id="join-btn">Join</button>
+    <form id="auth-form">
+        <input type="text" id="nickname-input" placeholder="Nickname" maxlength="32" required>
+        <input type="password" id="password-input" placeholder="Password" required>
+        <div id="auth-error"></div>
+        <button type="submit" id="auth-btn">Login</button>
+    </form>
+    <div id="auth-toggle">
+        <span id="auth-toggle-text">Don't have an account?</span>
+        <a id="auth-toggle-link">Register</a>
+    </div>
 </div>
 
+<!-- Chat screen -->
 <div id="chat-screen">
     <div id="chat-header">
         <h2 id="chat-title">Chat</h2>
         <span id="connection-status" style="color: #4caf50;">Connected</span>
+        <button id="logout-btn" style="background:none;border:1px solid #e94560;color:#e94560;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:13px;">Logout</button>
     </div>
     <div id="chat-body">
         <div id="users-panel">
@@ -290,13 +318,19 @@
 <script>
     let ws = null;
     let myNickname = '';
+    let myToken = '';
     let privateTarget = '';
+    let isRegisterMode = false;
 
-    const loginScreen = document.getElementById('login-screen');
+    const authScreen = document.getElementById('auth-screen');
     const chatScreen = document.getElementById('chat-screen');
+    const authForm = document.getElementById('auth-form');
     const nicknameInput = document.getElementById('nickname-input');
-    const nickError = document.getElementById('nick-error');
-    const joinBtn = document.getElementById('join-btn');
+    const passwordInput = document.getElementById('password-input');
+    const authBtn = document.getElementById('auth-btn');
+    const authError = document.getElementById('auth-error');
+    const authToggleText = document.getElementById('auth-toggle-text');
+    const authToggleLink = document.getElementById('auth-toggle-link');
     const messagesDiv = document.getElementById('messages');
     const messageInput = document.getElementById('message-input');
     const sendBtn = document.getElementById('send-btn');
@@ -305,53 +339,105 @@
     const privateChatHeader = document.getElementById('private-chat-header');
     const pmTargetLabel = document.getElementById('pm-target-label');
     const closePmBtn = document.getElementById('close-pm-btn');
+    const logoutBtn = document.getElementById('logout-btn');
 
-    joinBtn.addEventListener('click', checkNick);
-    nicknameInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') checkNick();
+    // Toggle login/register
+    authToggleLink.addEventListener('click', () => {
+        isRegisterMode = !isRegisterMode;
+        if (isRegisterMode) {
+            authBtn.textContent = 'Register';
+            authToggleText.textContent = 'Already have an account?';
+            authToggleLink.textContent = 'Login';
+        } else {
+            authBtn.textContent = 'Login';
+            authToggleText.textContent = "Don't have an account?";
+            authToggleLink.textContent = 'Register';
+        }
+        authError.textContent = '';
     });
 
-    // Проверка ника через HTTP перед подключением.
-    async function checkNick() {
+    // Submit auth form
+    authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
         const nick = nicknameInput.value.trim();
-        if (!nick) return;
+        const pass = passwordInput.value.trim();
+        if (!nick || !pass) return;
 
-        nickError.style.display = 'none';
-        joinBtn.disabled = true;
+        authError.textContent = '';
+        authBtn.disabled = true;
+
+        const endpoint = isRegisterMode ? '/api/register' : '/api/login';
 
         try {
-            const resp = await fetch(`/api/check-nick?nick=${encodeURIComponent(nick)}`);
-            if (resp.status === 409) {
-                const data = await resp.json();
-                nickError.textContent = data.error;
-                nickError.style.display = 'block';
-                joinBtn.disabled = false;
-                return;
-            }
-            if (!resp.ok) {
-                nickError.textContent = 'Server error, try again';
-                nickError.style.display = 'block';
-                joinBtn.disabled = false;
-                return;
-            }
-        } catch {
-            nickError.textContent = 'Cannot connect to server';
-            nickError.style.display = 'block';
-            joinBtn.disabled = false;
-            return;
-        }
+            const resp = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nickname: nick, password: pass }),
+            });
 
-        myNickname = nick;
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                authError.textContent = data.error || 'Something went wrong';
+                authBtn.disabled = false;
+                return;
+            }
+
+            // Сохраняем токен в localStorage — переживёт обновление страницы.
+            myToken = data.token;
+            myNickname = nick;
+            localStorage.setItem('ws_chat_token', myToken);
+            localStorage.setItem('ws_chat_nick', myNickname);
+
+            showChat();
+        } catch {
+            authError.textContent = 'Cannot connect to server';
+            authBtn.disabled = false;
+        }
+    });
+
+    // Флаг: пользователь нажал Logout — не нужно реконнектиться.
+    let isLoggingOut = false;
+
+    logoutBtn.addEventListener('click', () => {
+        isLoggingOut = true;
+        if (ws) ws.close();
+        localStorage.removeItem('ws_chat_token');
+        localStorage.removeItem('ws_chat_nick');
+        myToken = '';
+        myNickname = '';
+        chatScreen.style.display = 'none';
+        authScreen.style.display = 'flex';
+        authBtn.disabled = false;
+        authError.textContent = '';
+        nicknameInput.value = '';
+        passwordInput.value = '';
+    });
+
+    function tryRestoreSession() {
+        const savedToken = localStorage.getItem('ws_chat_token');
+        const savedNick = localStorage.getItem('ws_chat_nick');
+        if (savedToken && savedNick) {
+            myToken = savedToken;
+            myNickname = savedNick;
+            showChat();
+        }
+    }
+
+    function showChat() {
+        authScreen.style.display = 'none';
+        chatScreen.style.display = 'flex';
+        document.getElementById('chat-title').textContent = `Chat — ${myNickname}`;
         connect();
     }
 
     function connect() {
-        ws = new WebSocket(`ws://localhost:8081/ws?nick=${encodeURIComponent(myNickname)}`);
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws?token=${encodeURIComponent(myToken)}`);
 
         ws.onopen = () => {
-            loginScreen.style.display = 'none';
-            chatScreen.style.display = 'flex';
-            document.getElementById('chat-title').textContent = `Chat — ${myNickname}`;
+            connectionStatus.textContent = 'Connected';
+            connectionStatus.style.color = '#4caf50';
         };
 
         ws.onmessage = (event) => {
@@ -370,6 +456,13 @@
         ws.onclose = () => {
             connectionStatus.textContent = 'Disconnected';
             connectionStatus.style.color = '#f44336';
+
+            if (isLoggingOut) return;
+
+            // Авто-реконнект через 3 секунды.
+            setTimeout(() => {
+                if (myToken) connect();
+            }, 3000);
         };
 
         ws.onerror = () => {
@@ -458,6 +551,9 @@
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // При загрузке — пробуем восстановить сессию.
+    tryRestoreSession();
 </script>
 
 </body>

@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: ws-chat-db
+    environment:
+      POSTGRES_USER: wschat
+      POSTGRES_PASSWORD: wschat_secret
+      POSTGRES_DB: wschat
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wschat -d wschat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ws-chat-app
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: postgres://wschat:wschat_secret@postgres:5432/wschat?sslmode=disable
+      JWT_SECRET: super-secret-key-change-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

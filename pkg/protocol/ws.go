@@ -46,7 +46,7 @@ func (c *Connection) WriteJSON(v interface{}) error {
 
 func (c *Connection) WriteControl(messageType int, data []byte) error {
 	c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
-	return c.conn.WriteMessage(messageType, data)
+	return c.conn.WriteControl(messageType, data, time.Now().Add(20*time.Second))
 }
 
 func (c *Connection) Close() error {

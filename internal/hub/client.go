@@ -3,6 +3,7 @@ package hub
 import (
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/IliaPopov28/websocket-chat/internal/domain"
@@ -22,6 +23,7 @@ type Client struct {
 	hub      *Hub
 	conn     *protocol.Connection
 	send     chan domain.Message
+	once     sync.Once
 }
 
 func NewClient(nickname string, hub *Hub, conn *protocol.Connection) *Client {
@@ -38,6 +40,14 @@ func (c *Client) Nickname() string {
 
 func (c *Client) Send(message domain.Message) {
 	c.send <- message
+}
+
+// Close закрывает клиентское соединение. Безопасен для вызова из нескольких горутин.
+func (c *Client) Close() {
+	c.once.Do(func() {
+		close(c.send)
+		c.conn.Close()
+	})
 }
 
 func (c *Client) ReadPump() {
@@ -70,11 +80,13 @@ func (c *Client) ReadPump() {
 		case domain.PublicMessage:
 			c.hub.Broadcast(msg)
 		case domain.PrivateMessage:
+			// Отправляем себе тоже, чтобы видеть свои сообщения.
+			c.send <- msg
 			if !c.hub.SendTo(msg.Recipient, msg) {
 				errMsg := domain.Message{
 					Type:      domain.ErrorMessage,
 					Sender:    "system",
-					Content:   "user not found:" + msg.Recipient,
+					Content:   "user not found: " + msg.Recipient,
 					Timestamp: time.Now(),
 				}
 				c.send <- errMsg

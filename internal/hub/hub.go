@@ -4,6 +4,7 @@ import "github.com/IliaPopov28/websocket-chat/internal/domain"
 
 type ClientInterface interface {
 	Send(message domain.Message)
+	Close()
 }
 
 type Hub struct {
@@ -11,6 +12,7 @@ type Hub struct {
 	register   chan ClientInterface
 	unregister chan ClientInterface
 	broadcast  chan domain.Message
+	done       chan struct{}
 }
 
 func NewHub() *Hub {
@@ -19,6 +21,7 @@ func NewHub() *Hub {
 		register:   make(chan ClientInterface),
 		unregister: make(chan ClientInterface),
 		broadcast:  make(chan domain.Message),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -31,8 +34,19 @@ func (h *Hub) Run() {
 			h.handleUnregister(client)
 		case message := <-h.broadcast:
 			h.handleBroadcast(message)
+		case <-h.done:
+			return
 		}
 	}
+}
+
+// Shutdown закрывает все активные соединения и останавливает Hub.
+func (h *Hub) Shutdown() {
+	close(h.done)
+	for _, client := range h.registered {
+		client.Close()
+	}
+	h.registered = make(map[string]ClientInterface)
 }
 
 func (h *Hub) Register(client ClientInterface) {
