@@ -1,23 +1,23 @@
 package hub
 
-import "example.com/m/v2/internal/domain"
+import "github.com/IliaPopov28/websocket-chat/internal/domain"
 
-type Client interface {
+type ClientInterface interface {
 	Send(message domain.Message)
 }
 
 type Hub struct {
-	registered map[string]Client
-	register   chan Client
-	unregister chan Client
+	registered map[string]ClientInterface
+	register   chan ClientInterface
+	unregister chan ClientInterface
 	broadcast  chan domain.Message
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		registered: make(map[string]Client),
-		register:   make(chan Client),
-		unregister: make(chan Client),
+		registered: make(map[string]ClientInterface),
+		register:   make(chan ClientInterface),
+		unregister: make(chan ClientInterface),
 		broadcast:  make(chan domain.Message),
 	}
 }
@@ -35,14 +35,22 @@ func (h *Hub) Run() {
 	}
 }
 
-func (h *Hub) handleRegister(client Client) {
+func (h *Hub) Register(client ClientInterface) {
+	h.register <- client
+}
+
+func (h *Hub) handleRegister(client ClientInterface) {
 	h.registered[clientNickname(client)] = client
 }
 
-func (h *Hub) handleUnregister(client Client) {
+func (h *Hub) handleUnregister(client ClientInterface) {
 	nick := clientNickname(client)
 	if _, ok := h.registered[nick]; ok {
 		delete(h.registered, nick)
+		h.handleBroadcast(domain.Message{
+			Type:  domain.UserListMessage,
+			Users: h.RegisteredUsers(),
+		})
 	}
 }
 
@@ -78,9 +86,9 @@ func (h *Hub) RegisteredUsers() []string {
 	return users
 }
 
-func clientNickname(c Client) string {
+func clientNickname(c ClientInterface) string {
 	if cn, ok := c.(interface{ Nickname() string }); ok {
 		return cn.Nickname()
 	}
-	return "unknow"
+	return "unknown"
 }
