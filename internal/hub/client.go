@@ -1,3 +1,14 @@
+// GRACE: Client — пара горутин (ReadPump/WritePump), управляющих одним WebSocket-соединением.
+//
+// КРИТИЧЕСКИЙ ИНВАРИАНТ: только WritePump пишет в conn.
+// Client.Close() НЕ вызывает c.conn.Close() — он лишь закрывает каналы done и send.
+// Это предотвращает конкурентные записи (gorilla/websocket НЕ thread-safe для Write).
+//
+// ПОТОК ЗАКРЫТИЯ:
+//  1. Close() → close(done) + close(send)
+//  2. WritePump видит ok == false → отправляет CloseMessage → выходит
+//  3. ReadPump видит ошибку чтения → выходит, посылает unregister в Hub (non-blocking)
+//  4. defer WritePump → c.conn.Close() (единственный, кто пишет в conn при закрытии)
 package hub
 
 import (
@@ -41,7 +52,9 @@ func (c *Client) Nickname() string {
 	return c.nickname
 }
 
-// Send отправляет сообщение клиенту. Не паникует, если клиент уже закрыт.
+// GRACE: Send отправляет сообщение через буферизованный канал.
+// DECISION: select с <-c.done предотвращает панику «send on closed channel».
+// Если клиент закрыт — сообщение тихо отбрасывается.
 func (c *Client) Send(message domain.Message) {
 	select {
 	case c.send <- message:
@@ -49,18 +62,21 @@ func (c *Client) Send(message domain.Message) {
 	}
 }
 
-// Close закрывает клиентское соединение. Безопасен для вызова из нескольких горутин.
-// Только WritePump пишет в соединение — Close лишь сигнализирует об остановке.
+// GRACE: Close сигнализирует об остановке.
+// DECISION: не пишет в conn — это делает только WritePump. Закрывает done (для Send)
+// и send (для WritePump). sync.Once гарантирует однократность.
 func (c *Client) Close() {
 	c.once.Do(func() {
-		close(c.done) // сигналилизируем Send() и WritePump
-		close(c.send) // закрываем канал, WritePump увидит ok == false
+		close(c.done)
+		close(c.send)
 	})
 }
 
+// GRACE: ReadPump — горутина чтения.
+// DECISION: non-blocking unregister в defer — Hub может быть уже остановлен (Shutdown закрыл done).
+// Без select с <-h.hub.done горутина зависнет навсегда.
 func (c *Client) ReadPump() {
 	defer func() {
-		// Non-blocking unregister — Hub может быть уже остановлен.
 		select {
 		case c.hub.unregister <- c:
 		case <-c.hub.done:
@@ -106,6 +122,9 @@ func (c *Client) ReadPump() {
 	}
 }
 
+// GRACE: WritePump — горутина записи. ЕДИНСТВЕННЫЙ, кто пишет в conn.
+// DECISION: batch-оптимизация — склеивает несколько сообщений в один WS-фрейм.
+// При закрытии send-канала отправляет CloseMessage и закрывает conn.
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {

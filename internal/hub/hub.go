@@ -1,12 +1,25 @@
+// GRACE: Hub — единый оркестратор всех WebSocket-соединений.
+// Паттерн single-owner goroutine: вся работа с registered map происходит строго
+// в одной горутине (Run()), что гарантирует отсутствие гонок без мьютексов.
+//
+// ИНВАРИАНТЫ:
+//   - registered читается/модифицируется ТОЛЬКО внутри Run()
+//   - Все публичные методы (Register, Broadcast, SendTo) thread-safe — шлют через каналы
+//   - Shutdown() НЕ модифицирует registered напрямую — только закрывает done и вызывает client.Close()
 package hub
 
 import "github.com/IliaPopov28/websocket-chat/internal/domain"
 
+// GRACE: ClientInterface — абстракция над *Client.
+// DECISION: позволяет подменять клиента в тестах и передавать метаданные
+// (например, registeredClient для RegisterWithResult).
 type ClientInterface interface {
 	Send(message domain.Message)
 	Close()
 }
 
+// GRACE: Hub управляет подписками клиентов.
+// Нельзя менять сигнатуры каналов — от них зависит типизация в Run() select.
 type Hub struct {
 	registered map[string]ClientInterface
 	register   chan ClientInterface
@@ -15,6 +28,7 @@ type Hub struct {
 	done       chan struct{}
 }
 
+// NewHub создаёт новый Hub. Каналы небуферизованы — синхронная обработка в Run().
 func NewHub() *Hub {
 	return &Hub{
 		registered: make(map[string]ClientInterface),
@@ -25,6 +39,10 @@ func NewHub() *Hub {
 	}
 }
 
+// GRACE: Run — единственная горутина, которая работает с registered map.
+// Блокируется до закрытия done (сигнал от Shutdown()).
+// Порядок select-кейсов: Go выбирает случайный при готовности нескольких,
+// но это не влияет на корректность — регистрация/отписка/бродкаст идемпотентны.
 func (h *Hub) Run() {
 	for {
 		select {
@@ -40,23 +58,25 @@ func (h *Hub) Run() {
 	}
 }
 
-// Shutdown закрывает все активные соединения и останавливает Hub.
-// Не модифицирует map напрямую — это безопасно, т.к. Run() уже получает сигнал через done.
+// GRACE: Shutdown закрывает Hub.
+// DECISION: не переназначает registered = make(...) — это race condition с Run(),
+// который может ещё читать map перед выходом. Вместо этого: close(done) + client.Close().
 func (h *Hub) Shutdown() {
 	close(h.done)
-	// Закрываем клиентов — это разорвёт ReadPump/WritePump, и они завершатся.
 	for _, client := range h.registered {
 		client.Close()
 	}
-	// map НЕ переназначаем — Run() может ещё читать его перед выходом.
 }
 
-// Register отправляет клиента на регистрацию (без проверки результата).
+// GRACE: Register — fire-and-forget регистрация. Результат не проверяется.
 func (h *Hub) Register(client ClientInterface) {
 	h.register <- client
 }
 
-// RegisterWithResult регистрирует клиента и возвращает false, если nickname уже занят.
+// GRACE: RegisterWithResult — атомарная регистрация.
+// DECISION: решает TOCTOU-проблему — два клиента с одинаковым nickname не могут
+// оба пройти проверку. Результат возвращается через buffered channel внутри Run().
+// Вызывающий блокируется, пока Run() не обработает регистрацию.
 func (h *Hub) RegisterWithResult(client ClientInterface) bool {
 	resultCh := make(chan bool, 1)
 	h.register <- &registeredClient{ClientInterface: client, resultCh: resultCh}
@@ -66,14 +86,12 @@ func (h *Hub) RegisterWithResult(client ClientInterface) bool {
 func (h *Hub) handleRegister(client ClientInterface) {
 	nick := clientNickname(client)
 	if _, exists := h.registered[nick]; exists {
-		// Ник уже занят — отклоняем.
 		if rc, ok := client.(*registeredClient); ok {
 			rc.resultCh <- false
 		}
 		return
 	}
 	h.registered[nick] = client
-	// Если это RegisterWithResult — сообщаем об успехе.
 	if rc, ok := client.(*registeredClient); ok {
 		rc.resultCh <- true
 	}
@@ -96,10 +114,13 @@ func (h *Hub) handleBroadcast(message domain.Message) {
 	}
 }
 
+// GRACE: Broadcast — thread-safe, посылает сообщение через канал.
 func (h *Hub) Broadcast(message domain.Message) {
 	h.broadcast <- message
 }
 
+// GRACE: SendTo — thread-safe отправка конкретному клиенту.
+// Возвращает false, если клиент не найден.
 func (h *Hub) SendTo(nickname string, message domain.Message) bool {
 	client, ok := h.registered[nickname]
 	if !ok {
@@ -109,6 +130,9 @@ func (h *Hub) SendTo(nickname string, message domain.Message) bool {
 	return true
 }
 
+// GRACE: HasUser — НЕ thread-safe в изоляции, но безопасна в контексте
+// одного вызывающего (одна горутина handler.go). Для атомарной проверки
+// используйте RegisterWithResult.
 func (h *Hub) HasUser(nickname string) bool {
 	_, ok := h.registered[nickname]
 	return ok

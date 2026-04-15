@@ -1,3 +1,10 @@
+// GRACE: protocol — тонкая обёртка над gorilla/websocket.
+// Предоставляет JSON-сериализацию и управление дедлайнами.
+//
+// ИНВАРИАНТЫ:
+//   - ReadJSON/WriteJSON устанавливают дедлайны перед каждой операцией
+//   - Close() отправляет WS CloseMessage, но НЕ закрывает TCP-соединение
+//   - RawConn() даёт доступ к *websocket.Conn для SetReadLimit/SetPongHandler
 package protocol
 
 import (
@@ -8,6 +15,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// GRACE: Upgrader — HTTP → WebSocket upgrade.
+// DECISION: CheckOrigin: return true — для разработки. В production заменить на проверку Origin.
 var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,

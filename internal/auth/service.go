@@ -1,3 +1,12 @@
+// GRACE: auth — регистрация, логин, JWT-токены.
+//
+// ПОТОК:
+//   - Register() → INSERT в БД с bcrypt hash → если 23505 (unique violation) → ErrUserAlreadyExists
+//   - Login() → SELECT по nickname → bcrypt.CompareHashAndPassword → jwt.Sign
+//   - ValidateToken() → jwt.Parse с проверкой подписи и expiration
+//
+// DECISION: JWT без refresh — упрощение для pet-проекта. Токен на 24 часа.
+// В production нужен refresh endpoint.
 package auth
 
 import (

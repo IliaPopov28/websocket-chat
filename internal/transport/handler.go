@@ -1,3 +1,16 @@
+// GRACE: transport — HTTP-эндпоинты (register, login) и WebSocket upgrade.
+//
+// ПОТОК WebSocket-подключения:
+//  1. Извлечь JWT из query ?token=...
+//  2. Валидировать токен → получить nickname
+//  3. Upgrade HTTP → WebSocket
+//  4. Создать Client → атомарно зарегистрировать через RegisterWithResult
+//  5. Если регистрация неудачна (ник занят) → закрыть клиента и вернуть
+//  6. Запустить WritePump и ReadPump в отдельных горутинах
+//
+// DECISION: upgrade ПЕРЕД регистрацией — upgrade может упасть (сетевая ошибка).
+// Если регистрировать до upgrade, при ошибке клиент останется «зарегистрированным»
+// без реального соединения. Сейчас: upgrade → register → если register fail → close client.
 package transport
 
 import (
