@@ -37,21 +37,25 @@ func main() {
 
 	var pool *pgxpool.Pool
 	var err error
-	for i := 0; i < 10; i++ {
-		pool, err = pgxpool.New(context.Background(), dsn)
-		if err != nil {
-			log.Printf("Failed to create pool (attempt %d/10): %v", i+1, err)
-			time.Sleep(3 * time.Second)
-			continue
-		}
+	pool, err = pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("Failed to create pool: %v", err)
+	}
 
-		if err = pool.Ping(context.Background()); err == nil {
+	for i := 0; i < 10; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = pool.Ping(ctx)
+		cancel()
+		if err == nil {
 			break
 		}
-
 		log.Printf("Failed to ping database (attempt %d/10): %v", i+1, err)
 		pool.Close()
 		time.Sleep(3 * time.Second)
+		pool, err = pgxpool.New(context.Background(), dsn)
+		if err != nil {
+			log.Fatalf("Failed to create pool: %v", err)
+		}
 	}
 	if err != nil {
 		log.Fatalf("Unable to connect to database after retries: %v\n", err)
@@ -65,7 +69,7 @@ func main() {
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "super-secret-key-change-in-production"
+		log.Fatal("JWT_SECRET environment variable is required")
 	}
 
 	authService := auth.NewService(userStore, jwtSecret)

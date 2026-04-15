@@ -1,71 +1,76 @@
 # WebSocket Chat — Статус проекта
 
-> Формат работы: код пишется в чате с подробными объяснениями, пользователь переписывает в файлы.
-> Go-опыт у пользователя есть, объяснения фокусируются на WebSocket-специфике и архитектуре.
+> Последнее обновление: 15 апреля 2026
+> Ветка: `feat/auth-postgres`
 
 ---
 
-## Текущее состояние (выполнено)
+## Что реализовано ✅
 
-### Шаг 1. Инициализация модуля и исправление багов ✅
-- Создан `go.mod` — `github.com/IliaPopov28/websocket-chat`
-- Исправлен json-тег `reciptient` → `recipient` в `internal/domain/message.go`
-- Исправлен import `example.com/m/v2/internal/domain` → `github.com/IliaPopov28/websocket-chat/internal/domain` в `internal/hub/hub.go`
-- Опечатка `"unknow"` → `"unknown"` уже была исправлена ранее
-- Установлен `gorilla/websocket`
-
-### Шаг 2. Пакет `pkg/protocol/ws.go` — обёртка над WebSocket ✅
-- `Connection` — обёртка над `*websocket.Conn`
-- `Upgrader` — HTTP → WebSocket upgrade (CheckOrigin: true для разработки)
-- `ReadJSON` / `WriteJSON` — JSON-сериализация с дедлайнами
-- `WriteControl` — отправка управляющих сообщений (ping/pong/close)
-- `Close` — корректное закрытие с close-кодом
-- `RawConn` — доступ к сырому `*websocket.Conn`
-
-### Шаг 3. Пакет `internal/hub/client.go` — Client с ReadPump/WritePump ✅
-- `Client` — структура: nickname, hub, conn, send (буферизованный канал)
-- `NewClient` — конструктор с буфером send = 256
-- `Nickname()` — реализация интерфейса для hub.go
-- `ReadPump` — горутина чтения:
-  - defer: unregister + Close
-  - PongHandler для продления read deadline
-  - Читает JSON, заполняет Sender/Timestamp
-  - PublicMessage → hub.Broadcast()
-  - PrivateMessage → hub.SendTo() или ErrorMessage обратно
-- `WritePump` — горутина записи:
-  - select: send канал + ping-тикер (pingPeriod = 40с)
-  - Batch-оптимизация: склейка сообщений в один WS-фрейм
-  - Ping для проверки живости, CloseNormalClosure при выходе
-
----
-
-## Осталось реализовать
-
-### Шаг 4. Пакет `internal/transport/handler.go` — HTTP обработчики
-- WebSocket upgrade handler (`/ws?nick=...`)
-- HTTP handler для раздачи статики (`/`)
-- Парсинг nickname из query параметров
-- Валидация ника (не пустой, проверка на существование через Hub)
-
-### Шаг 5. Файл `cmd/server/main.go` — точка входа
-- Создание Hub, запуск `hub.Run()` в горутине
-- Настройка HTTP сервера (mux, static files, ws handler)
+### Ядро
+- WebSocket Hub с goroutine-per-client (ReadPump / WritePump)
+- Public и private сообщения (JSON через WebSocket)
+- Batch-оптимизация записи, ping/pong keepalive
 - Graceful shutdown (os/signal + context)
 
-### Шаг 6. Файл `web/index.html` — фронтенд чата
-- HTML + CSS + vanilla JS
-- WebSocket API, отправка/получение JSON-сообщений
-- UI: ввод ника, поле сообщений, список пользователей
+### Аутентификация
+- Регистрация + логин с JWT-токенами (HS256, 24h)
+- Bcrypt хеширование паролей
+- WebSocket-подключение через токен в query-параметре (`/ws?token=...`)
 
-### Шаг 7. Запуск и тестирование
-- `go run cmd/server/main.go`
-- Несколько вкладок, проверка чата, приватных сообщений
+### Хранение данных
+- PostgreSQL (pgxpool) для пользователей
+- Миграции через `/docker-entrypoint-initdb.d/`
+- Таблица `users` (nickname, password_hash)
 
-### Шаг 8. Улучшения (опционально)
-- Команды в чате (`/list`, `/msg <nick> <text>`)
-- Логирование через slog
-- Конфигурация через env-переменные
-- Тесты на Hub
+### Веб
+- Встраивание фронтенда через `//go:embed`
+- HTML + vanilla JS фронтенд (index.html)
+- UI: логин/регистрация, чат, список пользователей
+
+### Инфраструктура
+- Dockerfile (multi-stage: go build → alpine)
+- docker-compose.yml (app + postgres)
+- .dockerignore, .gitignore
+
+---
+
+## Известные проблемы (из code review 15.04.2026)
+
+### 🔴 Critical (блокируют мерж)
+1. **Send on closed channel** — `Client.Send()` паникует после `Close()` (`internal/hub/client.go`)
+2. **Concurrent WebSocket writes** — `Close()` и `WritePump` пишут в соединение одновременно
+3. **Race condition в `Shutdown()`** — signal handler модифицирует map, который читает `Run()`
+4. **TOCTOU дубликат nickname** — одновременное подключение с одним ником приводит к утечке горутин
+
+### 🟡 Suggestion
+5. JWT токен в URL — утечка в логах
+6. Захардкоженный JWT secret
+7. Дублирование кода парсинга auth-запроса
+8. Нет rate limiting на auth-эндпоинтах
+9. `CheckOrigin: return true` — любой источник
+10. `embed *` может засветить `.go` файлы
+11. `pool.Ping()` без таймаута
+12. Postgres port экспонирован на host
+
+### 🔵 Linter (errcheck)
+12 непроверенных возвращаемых значений (`SetReadDeadline`, `SetWriteDeadline`, `w.Write`, `json.Encode`)
+
+> Полный отчёт: `.qwen/reviews/2026-04-15-153000-feat-auth-postgres.md`
+
+---
+
+## Что можно добавить (TODO)
+
+- [ ] Исправить 4 Critical проблемы из ревью
+- [ ] Rate limiting на `/api/register` и `/api/login`
+- [ ] Передавать JWT через `Sec-WebSocket-Protocol` вместо URL
+- [ ] Вынести JWT secret в обязательную env-переменную (fail fast)
+- [ ] Тесты (hub, auth service, handlers)
+- [ ] Логирование через `slog`
+- [ ] Команды в чате (`/list`, `/msg`)
+- [ ] Proper migration tool (golang-migrate / goose) при росте миграций
+- [ ] CI/CD (GitHub Actions: build + test + lint)
 
 ---
 
@@ -73,44 +78,53 @@
 
 ```
 websocket-chat/
-  cmd/
-    server/
-      main.go              # TODO (Шаг 5)
+  cmd/server/main.go              # Точка входа, инициализация, graceful shutdown
   internal/
+    auth/service.go               # JWT аутентификация (register, login, validate)
     domain/
-      errors.go            # ✅ Готово
-      message.go           # ✅ Готово (исправлен тег)
-      user.go              # ✅ Готово
+      errors.go                   # Доменные ошибки
+      message.go                  # Модель сообщения
+      user.go                     # Модель пользователя
     hub/
-      client.go            # ✅ Готово (Шаг 3)
-      hub.go               # ✅ Готово (исправлен import)
+      client.go                   # Client: ReadPump, WritePump, Send
+      hub.go                      # Hub: register, unregister, broadcast
+    store/postgres/
+      user_store.go               # PostgreSQL хранилище пользователей
     transport/
-      handler.go           # TODO (Шаг 4)
-  pkg/
-    protocol/
-      ws.go                # ✅ Готово (Шаг 2)
+      handler.go                  # HTTP/WebSocket хендлеры (register, login, ws)
+  migrations/
+    001_create_users.sql          # Создание таблицы users
+  pkg/protocol/
+    ws.go                         # Низкоуровневая обёртка над gorilla/websocket
   web/
-    index.html             # TODO (Шаг 6)
-  go.mod                   # ✅ Создан
-  go.sum                   # ✅ (после go mod tidy)
-  LICENSE                  # ✅ MIT
+    index.html                    # Фронтенд чата
+    web.go                        // go:embed для веб-ресурсов
+  docker-compose.yml              # App + PostgreSQL
+  Dockerfile                      # Multi-stage build
+  QWEN.md                         # Инструкции для ИИ
 ```
 
 ---
 
-## Константы (из client.go)
+## Константы
 
 ```go
-writeWait      = 20 * time.Second  // дедлайн записи
-pongWait       = 60 * time.Second  // макс. время ожидания pong
-pingPeriod     = pongWait * 2 / 3  // ~40с, интервал ping
+// client.go
+writeWait      = 20 * time.Second
+pongWait       = 60 * time.Second
+pingPeriod     = pongWait * 2 / 3  // ~40с
 maxMessageSize = 1024 * 1024       // 1MB
 ```
 
 ---
 
-## Как продолжить в новой сессии
+## Команды
 
-1. Загрузить этот файл как контекст
-2. Следующий шаг — **Шаг 4** (transport handler)
-3. Формат: код в чате с объяснениями → пользователь переписывает в файлы
+```bash
+go run cmd/server/main.go          # Запуск
+go build ./...                     # Сборка
+go test ./...                      # Тесты
+go vet ./...                       # Статический анализ
+golangci-lint run ./...            # Линтер
+docker-compose up                  # Запуск с PostgreSQL
+```

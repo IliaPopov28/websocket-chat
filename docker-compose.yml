@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: wschat
       POSTGRES_PASSWORD: wschat_secret
       POSTGRES_DB: wschat
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro
@@ -25,9 +23,8 @@ services:
     restart: unless-stopped
     ports:
       - "8081:8081"
-    environment:
-      DATABASE_URL: postgres://wschat:wschat_secret@postgres:5432/wschat?sslmode=disable
-      JWT_SECRET: super-secret-key-change-in-production
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy

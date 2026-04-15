@@ -2,6 +2,7 @@ package transport
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/IliaPopov28/websocket-chat/internal/auth"
@@ -48,7 +49,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		if err == auth.ErrUserAlreadyExists {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			w.Write([]byte(`{"error":"nickname is already taken"}`))
+			_, _ = w.Write([]byte(`{"error":"nickname is already taken"}`))
 			return
 		}
 		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
@@ -62,7 +63,9 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	if err := json.NewEncoder(w).Encode(map[string]string{"token": token}); err != nil {
+		log.Printf("Failed to encode token: %v", err)
+	}
 }
 
 // HandleLogin — POST /api/login
@@ -89,17 +92,19 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		if err == auth.ErrUserNotFound {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"error":"user not found"}`))
+			_, _ = w.Write([]byte(`{"error":"user not found"}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error":"invalid credentials"}`))
+		_, _ = w.Write([]byte(`{"error":"invalid credentials"}`))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	if err := json.NewEncoder(w).Encode(map[string]string{"token": token}); err != nil {
+		log.Printf("Failed to encode token: %v", err)
+	}
 }
 
 // HandleWebSocket — GET /ws?token=...
@@ -117,11 +122,6 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.hub.HasUser(nickname) {
-		http.Error(w, "already connected", http.StatusConflict)
-		return
-	}
-
 	conn, err := protocol.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -130,7 +130,12 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	wsConn := protocol.NewConnection(conn)
 
 	client := hub.NewClient(nickname, h.hub, wsConn)
-	h.hub.Register(client)
+
+	// Атомарная регистрация — возвращает false, если nickname уже занят.
+	if !h.hub.RegisterWithResult(client) {
+		client.Close()
+		return
+	}
 
 	h.hub.Broadcast(domain.Message{
 		Type:    domain.SystemMessage,

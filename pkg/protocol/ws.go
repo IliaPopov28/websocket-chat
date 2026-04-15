@@ -23,7 +23,7 @@ func NewConnection(conn *websocket.Conn) *Connection {
 }
 
 func (c *Connection) ReadJSON(v interface{}) error {
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 	_, message, err := c.conn.ReadMessage()
 	if err != nil {
@@ -34,7 +34,7 @@ func (c *Connection) ReadJSON(v interface{}) error {
 }
 
 func (c *Connection) WriteJSON(v interface{}) error {
-	c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
+	_ = c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
 
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -45,7 +45,7 @@ func (c *Connection) WriteJSON(v interface{}) error {
 }
 
 func (c *Connection) WriteControl(messageType int, data []byte) error {
-	c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
+	_ = c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
 	return c.conn.WriteControl(messageType, data, time.Now().Add(20*time.Second))
 }
 

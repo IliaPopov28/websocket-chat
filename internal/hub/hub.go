@@ -41,20 +41,42 @@ func (h *Hub) Run() {
 }
 
 // Shutdown закрывает все активные соединения и останавливает Hub.
+// Не модифицирует map напрямую — это безопасно, т.к. Run() уже получает сигнал через done.
 func (h *Hub) Shutdown() {
 	close(h.done)
+	// Закрываем клиентов — это разорвёт ReadPump/WritePump, и они завершатся.
 	for _, client := range h.registered {
 		client.Close()
 	}
-	h.registered = make(map[string]ClientInterface)
+	// map НЕ переназначаем — Run() может ещё читать его перед выходом.
 }
 
+// Register отправляет клиента на регистрацию (без проверки результата).
 func (h *Hub) Register(client ClientInterface) {
 	h.register <- client
 }
 
+// RegisterWithResult регистрирует клиента и возвращает false, если nickname уже занят.
+func (h *Hub) RegisterWithResult(client ClientInterface) bool {
+	resultCh := make(chan bool, 1)
+	h.register <- &registeredClient{ClientInterface: client, resultCh: resultCh}
+	return <-resultCh
+}
+
 func (h *Hub) handleRegister(client ClientInterface) {
-	h.registered[clientNickname(client)] = client
+	nick := clientNickname(client)
+	if _, exists := h.registered[nick]; exists {
+		// Ник уже занят — отклоняем.
+		if rc, ok := client.(*registeredClient); ok {
+			rc.resultCh <- false
+		}
+		return
+	}
+	h.registered[nick] = client
+	// Если это RegisterWithResult — сообщаем об успехе.
+	if rc, ok := client.(*registeredClient); ok {
+		rc.resultCh <- true
+	}
 }
 
 func (h *Hub) handleUnregister(client ClientInterface) {
@@ -105,4 +127,18 @@ func clientNickname(c ClientInterface) string {
 		return cn.Nickname()
 	}
 	return "unknown"
+}
+
+// registeredClient — обёртка для RegisterWithResult, передаёт результат обратно вызывающему.
+type registeredClient struct {
+	ClientInterface
+	resultCh chan<- bool
+}
+
+func (rc *registeredClient) Send(msg domain.Message) {
+	rc.ClientInterface.Send(msg)
+}
+
+func (rc *registeredClient) Close() {
+	rc.ClientInterface.Close()
 }
