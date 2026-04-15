@@ -14,7 +14,7 @@ import "github.com/IliaPopov28/websocket-chat/internal/domain"
 // DECISION: позволяет подменять клиента в тестах и передавать метаданные
 // (например, registeredClient для RegisterWithResult).
 type ClientInterface interface {
-	Send(message domain.Message)
+	Send(message *domain.Message)
 	Close()
 }
 
@@ -24,7 +24,7 @@ type Hub struct {
 	registered map[string]ClientInterface
 	register   chan ClientInterface
 	unregister chan ClientInterface
-	broadcast  chan domain.Message
+	broadcast  chan *domain.Message
 	done       chan struct{}
 }
 
@@ -34,7 +34,7 @@ func NewHub() *Hub {
 		registered: make(map[string]ClientInterface),
 		register:   make(chan ClientInterface),
 		unregister: make(chan ClientInterface),
-		broadcast:  make(chan domain.Message),
+		broadcast:  make(chan *domain.Message, 256),
 		done:       make(chan struct{}),
 	}
 }
@@ -101,27 +101,27 @@ func (h *Hub) handleUnregister(client ClientInterface) {
 	nick := clientNickname(client)
 	if _, ok := h.registered[nick]; ok {
 		delete(h.registered, nick)
-		h.handleBroadcast(domain.Message{
+		h.handleBroadcast(&domain.Message{
 			Type:  domain.UserListMessage,
 			Users: h.RegisteredUsers(),
 		})
 	}
 }
 
-func (h *Hub) handleBroadcast(message domain.Message) {
+func (h *Hub) handleBroadcast(message *domain.Message) {
 	for _, client := range h.registered {
 		client.Send(message)
 	}
 }
 
 // GRACE: Broadcast — thread-safe, посылает сообщение через канал.
-func (h *Hub) Broadcast(message domain.Message) {
+func (h *Hub) Broadcast(message *domain.Message) {
 	h.broadcast <- message
 }
 
 // GRACE: SendTo — thread-safe отправка конкретному клиенту.
 // Возвращает false, если клиент не найден.
-func (h *Hub) SendTo(nickname string, message domain.Message) bool {
+func (h *Hub) SendTo(nickname string, message *domain.Message) bool {
 	client, ok := h.registered[nickname]
 	if !ok {
 		return false
@@ -159,7 +159,7 @@ type registeredClient struct {
 	resultCh chan<- bool
 }
 
-func (rc *registeredClient) Send(msg domain.Message) {
+func (rc *registeredClient) Send(msg *domain.Message) {
 	rc.ClientInterface.Send(msg)
 }
 

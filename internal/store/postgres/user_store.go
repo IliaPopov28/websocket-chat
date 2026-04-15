@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -37,7 +38,7 @@ func (s *UserStore) Create(ctx context.Context, nickname, passwordHash string) e
 		if isUniqueViolation(err) {
 			return ErrUserAlreadyExists
 		}
-		return err
+		return fmt.Errorf("exec insert: %w", err)
 	}
 	return nil
 }
@@ -52,7 +53,7 @@ func (s *UserStore) GetByNickname(ctx context.Context, nickname string) (*User, 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("scan user: %w", err)
 	}
 	return &u, nil
 }

@@ -33,7 +33,7 @@ type Client struct {
 	nickname string
 	hub      *Hub
 	conn     *protocol.Connection
-	send     chan domain.Message
+	send     chan *domain.Message
 	done     chan struct{}
 	once     sync.Once
 }
@@ -43,7 +43,7 @@ func NewClient(nickname string, hub *Hub, conn *protocol.Connection) *Client {
 		nickname: nickname,
 		hub:      hub,
 		conn:     conn,
-		send:     make(chan domain.Message, 256),
+		send:     make(chan *domain.Message, 256),
 		done:     make(chan struct{}),
 	}
 }
@@ -55,7 +55,7 @@ func (c *Client) Nickname() string {
 // GRACE: Send отправляет сообщение через буферизованный канал.
 // DECISION: select с <-c.done предотвращает панику «send on closed channel».
 // Если клиент закрыт — сообщение тихо отбрасывается.
-func (c *Client) Send(message domain.Message) {
+func (c *Client) Send(message *domain.Message) {
 	select {
 	case c.send <- message:
 	case <-c.done:
@@ -105,12 +105,12 @@ func (c *Client) ReadPump() {
 
 		switch msg.Type {
 		case domain.PublicMessage:
-			c.hub.Broadcast(msg)
+			c.hub.Broadcast(&msg)
 		case domain.PrivateMessage:
 			// Отправляем себе тоже, чтобы видеть свои сообщения.
-			c.Send(msg)
-			if !c.hub.SendTo(msg.Recipient, msg) {
-				errMsg := domain.Message{
+			c.Send(&msg)
+			if !c.hub.SendTo(msg.Recipient, &msg) {
+				errMsg := &domain.Message{
 					Type:      domain.ErrorMessage,
 					Sender:    "system",
 					Content:   "user not found: " + msg.Recipient,
@@ -118,6 +118,9 @@ func (c *Client) ReadPump() {
 				}
 				c.Send(errMsg)
 			}
+		default:
+			// SystemMessage, ErrorMessage, UserListMessage — только от сервера,
+			// клиент не должен их отправлять. Игнорируем.
 		}
 	}
 }

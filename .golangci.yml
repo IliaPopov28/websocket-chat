@@ -1,0 +1,253 @@
+run:
+  timeout: 2m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Base (already enabled by default)
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Correctness & bugs
+    - asasalint        # pass []any as any
+    - asciicheck       # non-ASCII in identifiers
+    - bidichk          # dangerous unicode sequences
+    - bodyclose        # HTTP response body not closed
+    - contextcheck     # non-inherited context usage
+    - copyloopvar      # loop variable copy (Go 1.22+)
+    - durationcheck    # two durations multiplied
+    - errchkjson       # json encoding types
+    - errname          # sentinel error naming
+    - errorlint        # error wrapping comparison
+    - exhaustive       # enum switch exhaustiveness
+    - fatcontext       # nested contexts in loops
+    - gochecksumtype   # sum type exhaustiveness
+    - gosec            # security issues
+    - gosmopolitan     # i18n/l10n anti-patterns
+    - mirror           # bytes/strings mirror patterns
+    - nilerr           # return nil despite error check
+    - nilnesserr       # nil error check returns different nil
+    - noctx            # HTTP request without context
+    - reassign         # package variable reassignment
+    - rowserrcheck     # sql.Rows not checked
+    - spancheck        # OTel span issues
+    - sqlclosecheck    # sql.Rows/Stmt not closed
+    - wastedassign     # wasted assignments
+
+    # Style & conventions
+    - canonicalheader  # net/http.Header canonical
+    - containedctx     # struct contained context
+    - decorder         # declaration order
+    - dogsled          # too many blank identifiers
+    - dupl             # duplicate code
+    - dupword          # duplicate words
+    - forcetypeassert  # forced type assertions
+    - gci              # import ordering
+    - gocheckcompilerdirectives # //go: comments
+    - gochecknoglobals # global variables
+    - gochecknoinits   # init functions
+    - goconst          # repeated strings → constants
+    - gocritic         # bugs, performance, style
+    - gocyclo          # cyclomatic complexity
+    - godot            # comment period endings
+    - gofmt            # formatting
+    - gofumpt          # stricter formatting
+    - goimports        # import formatting
+    - inamedparam      # named interface params
+    - interfacebloat   # too many interface methods
+    - lll              # long lines
+    - makezero         # non-zero init slice
+    - misspell         # misspellings
+    - musttag          # struct field tags
+    - nakedret         # naked returns
+    - nestif           # nested if statements
+    - nilnil           # nil + invalid value return
+    - nonamedreturns   # named returns
+    - nosprintfhostport # Sprintf host:port
+    - perfsprint       # fmt.Sprintf → faster
+    - prealloc         # pre-allocate slices
+    - predeclared      # shadow predeclared identifiers
+    - promlinter       # prometheus metrics
+    - recvcheck        # receiver type consistency
+    - revive           # golint replacement
+    - sloglint         # slog consistency
+    - stylecheck       # style checks
+    - tagalign         # struct tag alignment
+    - unconvert        # unnecessary conversions
+    - unparam          # unused parameters
+    - usestdlibvars    # stdlib constants
+    - whitespace       # unnecessary newlines
+    - wrapcheck        # error wrapping from external
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+
+  err113:
+    check-defer: true
+
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+  exhaustive:
+    check:
+      - switch
+      - map
+    default-signifies-exhaustive: true
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+    disabled-checks:
+      - whyNoLint # allow //nolint comments
+
+  gocyclo:
+    min-complexity: 20
+
+  gocognit:
+    min-complexity: 20
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # too noisy
+      - shadow         # covered by other tools
+
+  lll:
+    line-length: 120
+    tab-width: 1
+
+  misspell:
+    locale: US
+
+  nakedret:
+    max-func-lines: 1
+
+  nilnil:
+    checked-types:
+      - ptr
+      - func
+      - iface
+      - map
+      - chan
+
+  nolintlint:
+    allow-unused: false
+    allow-leading-space: false
+    require-explanation: true
+    require-specific: true
+
+  perfsprint:
+    err-error: true
+    errorf: true
+    int-conversion: true
+    sprintf1: true
+    strconcat: true
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+  revive:
+    severity: warning
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      - name: exported
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: superfluous-else
+      - name: time-naming
+      - name: unexported-return
+      - name: unreachable-code
+      - name: unused-parameter
+      - name: var-declaration
+      - name: var-naming
+
+  unparam:
+    check-exported: false
+
+  varnamelen:
+    min-name-length: 3
+    check-receiver: true
+    check-return: true
+    ignore-names:
+      - err
+      - ok
+      - wg
+      - mu
+      - tx
+      - db
+      - id
+      - i
+      - n
+    ignore-decls:
+      - c Client
+      - h Hub
+      - w http.ResponseWriter
+      - r *http.Request
+      - ctx context.Context
+
+  whitespace:
+    multi-if: true
+    multi-func: true
+
+  wrapcheck:
+    ignoreSigs:
+      - .Errorf(
+      - errors.New(
+      - errors.Unwrap(
+      - .Wrap(
+      - .Wrapf(
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-dirs:
+    - vendor
+  exclude-rules:
+    # Test files: relax some rules
+    - path: _test\.go
+      linters:
+        - goconst
+        - funlen
+        - gocognit
+    # GRACE comments могут иметь сокращения без точки
+    - path: \.go
+      linters:
+        - godot
+      text: "GRACE:"
+    # Named returns ok в http handlers
+    - path: internal/transport
+      linters:
+        - nonamedreturns
+    # Upgrader — стандартный паттерн для gorilla/websocket
+    - path: pkg/protocol/ws\.go
+      linters:
+        - gochecknoglobals
+      text: "Upgrader"

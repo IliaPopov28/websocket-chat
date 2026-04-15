@@ -11,13 +11,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/IliaPopov28/websocket-chat/internal/store/postgres"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
-
-	"github.com/IliaPopov28/websocket-chat/internal/store/postgres"
 )
 
 // Re-export ошибок из postgres для удобства.
@@ -44,18 +44,21 @@ func (s *Service) Register(ctx context.Context, nickname, password string) error
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
-	return s.store.Create(ctx, nickname, string(hash))
+	if err := s.store.Create(ctx, nickname, string(hash)); err != nil {
+		return fmt.Errorf("create user: %w", err)
+	}
+	return nil
 }
 
 // Login проверяет пароль и возвращает JWT-токен.
 func (s *Service) Login(ctx context.Context, nickname, password string) (string, error) {
 	user, err := s.store.GetByNickname(ctx, nickname)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get user: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", fmt.Errorf("invalid password")
+		return "", errors.New("invalid password")
 	}
 
 	return s.generateToken(user.Nickname)
@@ -75,12 +78,12 @@ func (s *Service) ValidateToken(tokenStr string) (string, error) {
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		return "", fmt.Errorf("invalid token")
+		return "", errors.New("invalid token")
 	}
 
 	nickname, ok := claims["nickname"].(string)
 	if !ok {
-		return "", fmt.Errorf("missing nickname in token")
+		return "", errors.New("missing nickname in token")
 	}
 
 	return nickname, nil
@@ -94,5 +97,9 @@ func (s *Service) generateToken(nickname string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(s.secret)
+	tokenStr, err := token.SignedString(s.secret)
+	if err != nil {
+		return "", fmt.Errorf("sign token: %w", err)
+	}
+	return tokenStr, nil
 }

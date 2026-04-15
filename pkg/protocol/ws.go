@@ -9,6 +9,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+	CheckOrigin:     func(_ *http.Request) bool { return true },
 }
 
 type Connection struct {
@@ -36,10 +37,13 @@ func (c *Connection) ReadJSON(v interface{}) error {
 
 	_, message, err := c.conn.ReadMessage()
 	if err != nil {
-		return err
+		return fmt.Errorf("read message: %w", err)
 	}
 
-	return json.Unmarshal(message, v)
+	if err := json.Unmarshal(message, v); err != nil {
+		return fmt.Errorf("unmarshal JSON: %w", err)
+	}
+	return nil
 }
 
 func (c *Connection) WriteJSON(v interface{}) error {
@@ -47,23 +51,32 @@ func (c *Connection) WriteJSON(v interface{}) error {
 
 	data, err := json.Marshal(v)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal JSON: %w", err)
 	}
 
-	return c.conn.WriteMessage(websocket.TextMessage, data)
+	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return fmt.Errorf("write message: %w", err)
+	}
+	return nil
 }
 
 func (c *Connection) WriteControl(messageType int, data []byte) error {
 	_ = c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
-	return c.conn.WriteControl(messageType, data, time.Now().Add(20*time.Second))
+	if err := c.conn.WriteControl(messageType, data, time.Now().Add(20*time.Second)); err != nil {
+		return fmt.Errorf("write control: %w", err)
+	}
+	return nil
 }
 
 func (c *Connection) Close() error {
-	return c.conn.WriteControl(
+	if err := c.conn.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 		time.Now().Add(5*time.Second),
-	)
+	); err != nil {
+		return fmt.Errorf("close: %w", err)
+	}
+	return nil
 }
 
 func (c *Connection) RawConn() *websocket.Conn {

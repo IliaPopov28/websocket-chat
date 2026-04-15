@@ -10,13 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/IliaPopov28/websocket-chat/internal/auth"
 	"github.com/IliaPopov28/websocket-chat/internal/hub"
 	"github.com/IliaPopov28/websocket-chat/internal/store/postgres"
 	"github.com/IliaPopov28/websocket-chat/internal/transport"
 	"github.com/IliaPopov28/websocket-chat/web"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // webFiles возвращает fs.FS с содержимым web/.
@@ -60,17 +59,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to connect to database after retries: %v\n", err)
 	}
-	defer pool.Close()
 
 	log.Println("Connected to PostgreSQL")
 
 	// 2. Инициализация сервисов.
-	userStore := postgres.NewUserStore(pool)
-
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
+		pool.Close()
 		log.Fatal("JWT_SECRET environment variable is required")
 	}
+
+	userStore := postgres.NewUserStore(pool)
+
+	defer pool.Close()
 
 	authService := auth.NewService(userStore, jwtSecret)
 
@@ -92,8 +93,9 @@ func main() {
 
 	// 6. HTTP сервер.
 	server := &http.Server{
-		Addr:    ":8081",
-		Handler: mux,
+		Addr:              ":8081",
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// 7. Graceful shutdown.
@@ -117,8 +119,8 @@ func main() {
 	}()
 
 	log.Println("Server starting on :8081")
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("Server error: %v", err)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("Server error: %v", err)
 	}
 	log.Println("Server exited properly")
 }

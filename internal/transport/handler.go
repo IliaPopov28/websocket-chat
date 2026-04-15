@@ -6,7 +6,7 @@
 //  3. Upgrade HTTP → WebSocket
 //  4. Создать Client → атомарно зарегистрировать через RegisterWithResult
 //  5. Если регистрация неудачна (ник занят) → закрыть клиента и вернуть
-//  6. Запустить WritePump и ReadPump в отдельных горутинах
+//  6. Запустить WritePump и ReadPump в отдельных горутинах.
 //
 // DECISION: upgrade ПЕРЕД регистрацией — upgrade может упасть (сетевая ошибка).
 // Если регистрировать до upgrade, при ошибке клиент останется «зарегистрированным»
@@ -15,6 +15,7 @@ package transport
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -33,9 +34,7 @@ func NewHandler(h *hub.Hub, a *auth.Service) *Handler {
 	return &Handler{hub: h, auth: a}
 }
 
-// HandleRegister — POST /api/register
-// Body: {"nickname": "...", "password": "..."}
-// Returns: {"token": "..."}
+// Returns: {"token": "..."}.
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -59,7 +58,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 
 	err := h.auth.Register(r.Context(), req.Nickname, req.Password)
 	if err != nil {
-		if err == auth.ErrUserAlreadyExists {
+		if errors.Is(err, auth.ErrUserAlreadyExists) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"error":"nickname is already taken"}`))
@@ -81,9 +80,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleLogin — POST /api/login
-// Body: {"nickname": "...", "password": "..."}
-// Returns: {"token": "..."}
+// Returns: {"token": "..."}.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -102,7 +99,7 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.auth.Login(r.Context(), req.Nickname, req.Password)
 	if err != nil {
-		if err == auth.ErrUserNotFound {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"user not found"}`))
@@ -150,13 +147,13 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.hub.Broadcast(domain.Message{
+	h.hub.Broadcast(&domain.Message{
 		Type:    domain.SystemMessage,
 		Sender:  "system",
 		Content: nickname + " joined the chat",
 	})
 
-	h.hub.Broadcast(domain.Message{
+	h.hub.Broadcast(&domain.Message{
 		Type:  domain.UserListMessage,
 		Users: h.hub.RegisteredUsers(),
 	})
