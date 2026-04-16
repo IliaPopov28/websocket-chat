@@ -33,3 +33,20 @@
 - `go vet ./...` — статический анализ
 - `golangci-lint run ./...` — линтер
 - `docker-compose up` — запуск с PostgreSQL
+
+## Code Review
+
+1. После завершения задачи — запусти ревью коммитов: `review` или укажи хеш коммита
+2. Критичные баги исправлять сразу, остальное — по согласованию
+3. Каждый MR/PR должен пройти ревью перед merge в main
+
+## Git Workflow
+
+- Ветка `main` — стабильная, только merge после ревью
+- Feature-ветки: `feat/`, `fix/`, `docs/` по необходимости
+- Коммиты: `git add` → `git commit` → `git push`
+- Формат сообщений:
+  - `feat: add user registration`
+  - `fix: resolve race condition in hub`
+  - `docs: update README`
+  - `refactor: extract auth logic`
