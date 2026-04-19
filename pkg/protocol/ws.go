@@ -69,7 +69,9 @@ func NewConnection(conn *websocket.Conn) *Connection {
 }
 
 func (c *Connection) ReadJSON(v interface{}) error {
-	_ = c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := c.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		return fmt.Errorf("set read deadline: %w", err)
+	}
 
 	_, message, err := c.conn.ReadMessage()
 	if err != nil {
@@ -83,7 +85,9 @@ func (c *Connection) ReadJSON(v interface{}) error {
 }
 
 func (c *Connection) WriteJSON(v interface{}) error {
-	_ = c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
+	if err := c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second)); err != nil {
+		return fmt.Errorf("set write deadline: %w", err)
+	}
 
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -97,7 +101,9 @@ func (c *Connection) WriteJSON(v interface{}) error {
 }
 
 func (c *Connection) WriteControl(messageType int, data []byte) error {
-	_ = c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
+	if err := c.conn.SetWriteDeadline(time.Now().Add(20 * time.Second)); err != nil {
+		return fmt.Errorf("set write deadline: %w", err)
+	}
 	if err := c.conn.WriteControl(messageType, data, time.Now().Add(20*time.Second)); err != nil {
 		return fmt.Errorf("write control: %w", err)
 	}

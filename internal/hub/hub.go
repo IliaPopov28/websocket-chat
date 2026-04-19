@@ -59,13 +59,12 @@ func (h *Hub) Run() {
 }
 
 // GRACE: Shutdown закрывает Hub.
-// DECISION: не переназначает registered = make(...) — это race condition с Run(),
-// который может ещё читать map перед выходом. Вместо этого: close(done) + client.Close().
+// DECISION: шлём через done специальное сообщение, чтобы Run() завершилась
+// корректно — закроет все соединения и зарегистрированные клиенты.
+// Это устраняет race condition между итерацией по registered в Shutdown() и
+// записью/удалением в Run().
 func (h *Hub) Shutdown() {
 	close(h.done)
-	for _, client := range h.registered {
-		client.Close()
-	}
 }
 
 // GRACE: Register — fire-and-forget регистрация. Результат не проверяется.
@@ -77,6 +76,8 @@ func (h *Hub) Register(client ClientInterface) {
 // DECISION: решает TOCTOU-проблему — два клиента с одинаковым nickname не могут
 // оба пройти проверку. Результат возвращается через buffered channel внутри Run().
 // Вызывающий блокируется, пока Run() не обработает регистрацию.
+// NOTE: реальная проверка дубликатов nickname происходит внутри Run() в handleRegister,
+// что гарантирует атомарность (одна goroutine — serialised map access).
 func (h *Hub) RegisterWithResult(client ClientInterface) bool {
 	resultCh := make(chan bool, 1)
 	h.register <- &registeredClient{ClientInterface: client, resultCh: resultCh}
@@ -85,6 +86,7 @@ func (h *Hub) RegisterWithResult(client ClientInterface) bool {
 
 func (h *Hub) handleRegister(client ClientInterface) {
 	nick := clientNickname(client)
+	// NOTE: this runs inside Run() goroutine, so registered map access is already serialized.
 	if _, exists := h.registered[nick]; exists {
 		if rc, ok := client.(*registeredClient); ok {
 			rc.resultCh <- false

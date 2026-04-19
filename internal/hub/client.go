@@ -59,6 +59,7 @@ func (c *Client) Send(message *domain.Message) {
 	select {
 	case c.send <- message:
 	case <-c.done:
+		// Client is closed, silently drop the message.
 	}
 }
 

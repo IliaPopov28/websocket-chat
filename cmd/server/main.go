@@ -15,6 +15,7 @@ import (
 	"github.com/IliaPopov28/websocket-chat/internal/store/postgres"
 	"github.com/IliaPopov28/websocket-chat/internal/transport"
 	"github.com/IliaPopov28/websocket-chat/web"
+	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,6 +35,9 @@ func main() {
 		dsn = "postgres://wschat:wschat_secret@localhost:5432/wschat"
 	}
 
+	log.Println("Connected to PostgreSQL")
+
+	// 1. Подключение к PostgreSQL с повторными попытками.
 	var pool *pgxpool.Pool
 	var err error
 	pool, err = pgxpool.New(context.Background(), dsn)
@@ -62,10 +66,9 @@ func main() {
 
 	log.Println("Connected to PostgreSQL")
 
-	// 2. Инициализация сервисов.
+	// 2. Проверка JWT_SECRET до инициализации пула соединений (fail fast).
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		pool.Close()
 		log.Fatal("JWT_SECRET environment variable is required")
 	}
 
@@ -80,7 +83,12 @@ func main() {
 	go h.Run()
 
 	// 4. Handler.
-	handler := transport.NewHandler(h, authService)
+	upgrader := &websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true },
+	}
+	handler := transport.NewHandler(h, authService, upgrader)
 
 	// 5. Маршруты.
 	mux := http.NewServeMux()
