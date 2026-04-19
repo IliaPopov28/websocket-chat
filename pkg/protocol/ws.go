@@ -11,17 +11,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// GRACE: Upgrader — HTTP → WebSocket upgrade.
-// DECISION: CheckOrigin: return true — для разработки. В production заменить на проверку Origin.
-var Upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin:     func(_ *http.Request) bool { return true },
+// UpgraderConfig — конфигурация для WebSocket upgrade.
+type UpgraderConfig struct {
+	AllowedOrigins []string // если пусто — принимает все (для разработки)
+}
+
+// NewUpgrader создаёт Upgrader с проверкой Origin.
+// Если AllowedOrigins пуст — принимает все запросы (dev-режим).
+func NewUpgrader(cfg UpgraderConfig) *websocket.Upgrader {
+	allowed := normalizeOrigins(cfg.AllowedOrigins)
+	checkOrigin := func(r *http.Request) bool {
+		if len(allowed) == 0 {
+			return true // dev-режим
+		}
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // same-origin запросы не имеют Origin header
+		}
+		for _, a := range allowed {
+			if a == origin {
+				return true
+			}
+		}
+		return false
+	}
+
+	return &websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     checkOrigin,
+	}
+}
+
+func normalizeOrigins(origins []string) []string {
+	result := make([]string, 0, len(origins))
+	for _, o := range origins {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			result = append(result, o)
+		}
+	}
+	return result
 }
 
 type Connection struct {

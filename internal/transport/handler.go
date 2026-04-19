@@ -23,15 +23,17 @@ import (
 	"github.com/IliaPopov28/websocket-chat/internal/domain"
 	"github.com/IliaPopov28/websocket-chat/internal/hub"
 	"github.com/IliaPopov28/websocket-chat/pkg/protocol"
+	"github.com/gorilla/websocket"
 )
 
 type Handler struct {
-	hub  *hub.Hub
-	auth *auth.Service
+	hub      *hub.Hub
+	auth     *auth.Service
+	upgrader *websocket.Upgrader
 }
 
-func NewHandler(h *hub.Hub, a *auth.Service) *Handler {
-	return &Handler{hub: h, auth: a}
+func NewHandler(h *hub.Hub, a *auth.Service, upgrader *websocket.Upgrader) *Handler {
+	return &Handler{hub: h, auth: a, upgrader: upgrader}
 }
 
 // Returns: {"token": "..."}.
@@ -132,7 +134,7 @@ func (h *Handler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := protocol.Upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
