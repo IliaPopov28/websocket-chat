@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,20 +20,20 @@ import (
 
 // UpgraderConfig — конфигурация для WebSocket upgrade.
 type UpgraderConfig struct {
-	AllowedOrigins []string // если пусто — принимает все (для разработки)
+	AllowedOrigins []string // Дополнительные разрешённые Origin помимо same-origin.
 }
 
 // NewUpgrader создаёт Upgrader с проверкой Origin.
-// Если AllowedOrigins пуст — принимает все запросы (dev-режим).
+// Same-origin запросы и запросы без Origin разрешаются всегда.
 func NewUpgrader(cfg UpgraderConfig) *websocket.Upgrader {
 	allowed := normalizeOrigins(cfg.AllowedOrigins)
 	checkOrigin := func(r *http.Request) bool {
-		if len(allowed) == 0 {
-			return true // dev-режим
-		}
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true // same-origin запросы не имеют Origin header
+			return true
+		}
+		if isSameOrigin(origin, r.Host) {
+			return true
 		}
 		for _, a := range allowed {
 			if a == origin {
@@ -58,6 +59,14 @@ func normalizeOrigins(origins []string) []string {
 		}
 	}
 	return result
+}
+
+func isSameOrigin(origin, host string) bool {
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return parsedOrigin.Host == host
 }
 
 type Connection struct {

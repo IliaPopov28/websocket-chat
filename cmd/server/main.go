@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 	"github.com/IliaPopov28/websocket-chat/internal/hub"
 	"github.com/IliaPopov28/websocket-chat/internal/store/postgres"
 	"github.com/IliaPopov28/websocket-chat/internal/transport"
+	"github.com/IliaPopov28/websocket-chat/pkg/protocol"
 	"github.com/IliaPopov28/websocket-chat/web"
-	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,8 +35,6 @@ func main() {
 	if dsn == "" {
 		dsn = "postgres://wschat:wschat_secret@localhost:5432/wschat"
 	}
-
-	log.Println("Connected to PostgreSQL")
 
 	// 1. Подключение к PostgreSQL с повторными попытками.
 	var pool *pgxpool.Pool
@@ -83,11 +82,9 @@ func main() {
 	go h.Run()
 
 	// 4. Handler.
-	upgrader := &websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin:     func(r *http.Request) bool { return true },
-	}
+	upgrader := protocol.NewUpgrader(protocol.UpgraderConfig{
+		AllowedOrigins: allowedOriginsFromEnv(os.Getenv("ALLOWED_ORIGINS")),
+	})
 	handler := transport.NewHandler(h, authService, upgrader)
 
 	// 5. Маршруты.
@@ -131,4 +128,11 @@ func main() {
 		log.Printf("Server error: %v", err)
 	}
 	log.Println("Server exited properly")
+}
+
+func allowedOriginsFromEnv(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, ",")
 }
