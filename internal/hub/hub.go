@@ -87,7 +87,7 @@ func (h *Hub) Register(client ClientInterface) {
 // оба пройти проверку. Результат возвращается через buffered channel внутри Run().
 // Вызывающий блокируется, пока Run() не обработает регистрацию.
 // NOTE: реальная проверка дубликатов nickname происходит внутри Run() в handleRegister,
-// что гарантирует атомарность (одна goroutine — serialised map access).
+// что гарантирует атомарность (одна goroutine — serialized map access).
 func (h *Hub) RegisterWithResult(client ClientInterface) bool {
 	resultCh := make(chan bool, 1)
 	select {

@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +18,7 @@ func TestNewUpgraderAllowsSameOriginBrowserConnection(t *testing.T) {
 	defer server.Close()
 
 	conn, resp, err := dialWebSocket(server.URL, server.URL)
+	t.Cleanup(func() { closeResponseBody(resp) })
 	if err != nil {
 		status := 0
 		if resp != nil {
@@ -23,7 +26,7 @@ func TestNewUpgraderAllowsSameOriginBrowserConnection(t *testing.T) {
 		}
 		t.Fatalf("expected same-origin handshake to succeed, status=%d err=%v", status, err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { _ = conn.Close() })
 }
 
 func TestNewUpgraderRejectsForeignOriginByDefault(t *testing.T) {
@@ -33,8 +36,9 @@ func TestNewUpgraderRejectsForeignOriginByDefault(t *testing.T) {
 	defer server.Close()
 
 	conn, resp, err := dialWebSocket(server.URL, "https://evil.example")
+	t.Cleanup(func() { closeResponseBody(resp) })
 	if conn != nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatal("expected foreign origin handshake to fail")
 	}
 	if err == nil {
@@ -56,6 +60,7 @@ func TestNewUpgraderAllowsConfiguredCrossOriginFrontend(t *testing.T) {
 	defer server.Close()
 
 	conn, resp, err := dialWebSocket(server.URL, frontendOrigin)
+	t.Cleanup(func() { closeResponseBody(resp) })
 	if err != nil {
 		status := 0
 		if resp != nil {
@@ -63,7 +68,7 @@ func TestNewUpgraderAllowsConfiguredCrossOriginFrontend(t *testing.T) {
 		}
 		t.Fatalf("expected allowlisted origin handshake to succeed, status=%d err=%v", status, err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() { _ = conn.Close() })
 }
 
 func newTestWebSocketServer(t *testing.T, cfg UpgraderConfig) *httptest.Server {
@@ -86,5 +91,17 @@ func dialWebSocket(httpURL, origin string) (*websocket.Conn, *http.Response, err
 	if origin != "" {
 		header.Set("Origin", origin)
 	}
-	return websocket.DefaultDialer.Dial(wsURL, header)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		return nil, resp, fmt.Errorf("dial websocket: %w", err)
+	}
+	return conn, resp, nil
+}
+
+func closeResponseBody(resp *http.Response) {
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 }
