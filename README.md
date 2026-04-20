@@ -1,39 +1,67 @@
 # WebSocket Chat
 
-Учебный проект для понимания работы с WebSocket на Go.
+Учебный проект для практики WebSocket на Go: чат с JWT-аутентификацией, PostgreSQL и встроенным фронтендом.
 
-## Что внутри
+## Возможности
 
-- WebSocket-чат с публичными и приватными сообщениями
-- JWT-аутентификация (регистрация + логин, bcrypt)
-- Хранение пользователей в PostgreSQL (pgxpool)
-- Graceful shutdown, ping/pong keepalive
-- Фронтенд на vanilla JS, встраивается через `go:embed`
-- Docker-инфраструктура (app + postgres)
+- Публичные и приватные сообщения по WebSocket
+- Регистрация и логин с JWT (HS256, срок 24 часа)
+- Хранение пользователей в PostgreSQL (`pgxpool`)
+- Graceful shutdown с закрытием активных WebSocket-клиентов
+- Origin-проверка для WebSocket (same-origin + allowlist через `ALLOWED_ORIGINS`)
+- Фронтенд на vanilla JS, встроенный через `go:embed`
 
-## Быстрый старт
+## Быстрый старт (Docker)
 
+1. Создай `.env` из шаблона:
 ```bash
-docker-compose up
+cp .env.example .env
 ```
-
-Или локально:
-
+2. Заполни `JWT_SECRET` в `.env`.
+3. Запусти сервисы:
 ```bash
+docker compose up --build
+```
+4. Открой `http://localhost:8081`.
+
+## Локальный запуск (без Docker)
+
+Минимально нужен доступный PostgreSQL и переменная `JWT_SECRET`.
+
+PowerShell пример:
+
+```powershell
+$env:JWT_SECRET = "change-me"
+$env:DATABASE_URL = "postgres://wschat:wschat_secret@localhost:5432/wschat?sslmode=disable"
+$env:ALLOWED_ORIGINS = "http://localhost:8081"
 go run cmd/server/main.go
 ```
 
-Открой `http://localhost:8080` в двух вкладках.
+Если `DATABASE_URL` не задан, используется `postgres://wschat:wschat_secret@localhost:5432/wschat`.
+
+## Проверка качества
+
+```bash
+go test ./...
+go build ./...
+go vet ./...
+golangci-lint run ./...
+```
+
+## Текущие тесты
+
+- `internal/hub/hub_test.go`: shutdown закрывает клиентов, дубликат nickname отклоняется
+- `pkg/protocol/ws_test.go`: same-origin разрешён, чужой origin режется, allowlist origin разрешается
 
 ## Структура
 
 ```
 cmd/server/main.go        — точка входа
 internal/auth/            — JWT-аутентификация
-internal/hub/             — управление клиентами, broadcast
+internal/hub/             — управление клиентами и broadcast
 internal/store/postgres/  — хранение пользователей
 internal/transport/       — HTTP + WebSocket хендлеры
-pkg/protocol/             — обёртка над gorilla/websocket
+pkg/protocol/             — WebSocket-протокол и origin-check
 web/                      — фронтенд (embed)
 ```
 
