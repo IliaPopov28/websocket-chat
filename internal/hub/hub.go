@@ -8,7 +8,11 @@
 //   - Shutdown() НЕ модифицирует registered напрямую — только закрывает done и вызывает client.Close()
 package hub
 
-import "github.com/IliaPopov28/websocket-chat/internal/domain"
+import (
+	"sync"
+
+	"github.com/IliaPopov28/websocket-chat/internal/domain"
+)
 
 // GRACE: ClientInterface — абстракция над *Client.
 // DECISION: позволяет подменять клиента в тестах и передавать метаданные
@@ -26,6 +30,7 @@ type Hub struct {
 	unregister chan ClientInterface
 	broadcast  chan *domain.Message
 	done       chan struct{}
+	once       sync.Once
 }
 
 // NewHub создаёт новый Hub. Каналы небуферизованы — синхронная обработка в Run().
@@ -53,23 +58,28 @@ func (h *Hub) Run() {
 		case message := <-h.broadcast:
 			h.handleBroadcast(message)
 		case <-h.done:
+			h.closeRegisteredClients()
 			return
 		}
 	}
 }
 
 // GRACE: Shutdown закрывает Hub.
-// DECISION: шлём через done специальное сообщение, чтобы Run() завершилась
-// корректно — закроет все соединения и зарегистрированные клиенты.
-// Это устраняет race condition между итерацией по registered в Shutdown() и
-// записью/удалением в Run().
+// DECISION: done закрывается только один раз, а зарегистрированных клиентов
+// завершает сама goroutine Run() — единственный владелец registered map.
 func (h *Hub) Shutdown() {
-	close(h.done)
+	h.once.Do(func() {
+		close(h.done)
+	})
 }
 
 // GRACE: Register — fire-and-forget регистрация. Результат не проверяется.
 func (h *Hub) Register(client ClientInterface) {
-	h.register <- client
+	select {
+	case h.register <- client:
+	case <-h.done:
+		client.Close()
+	}
 }
 
 // GRACE: RegisterWithResult — атомарная регистрация.
@@ -80,7 +90,12 @@ func (h *Hub) Register(client ClientInterface) {
 // что гарантирует атомарность (одна goroutine — serialised map access).
 func (h *Hub) RegisterWithResult(client ClientInterface) bool {
 	resultCh := make(chan bool, 1)
-	h.register <- &registeredClient{ClientInterface: client, resultCh: resultCh}
+	select {
+	case h.register <- &registeredClient{ClientInterface: client, resultCh: resultCh}:
+	case <-h.done:
+		client.Close()
+		return false
+	}
 	return <-resultCh
 }
 
@@ -118,7 +133,10 @@ func (h *Hub) handleBroadcast(message *domain.Message) {
 
 // GRACE: Broadcast — thread-safe, посылает сообщение через канал.
 func (h *Hub) Broadcast(message *domain.Message) {
-	h.broadcast <- message
+	select {
+	case h.broadcast <- message:
+	case <-h.done:
+	}
 }
 
 // GRACE: SendTo — thread-safe отправка конкретному клиенту.
@@ -155,6 +173,12 @@ func clientNickname(c ClientInterface) string {
 	return "unknown"
 }
 
+func (h *Hub) closeRegisteredClients() {
+	for _, client := range h.registered {
+		client.Close()
+	}
+}
+
 // registeredClient — обёртка для RegisterWithResult, передаёт результат обратно вызывающему.
 type registeredClient struct {
 	ClientInterface
@@ -163,6 +187,10 @@ type registeredClient struct {
 
 func (rc *registeredClient) Send(msg *domain.Message) {
 	rc.ClientInterface.Send(msg)
+}
+
+func (rc *registeredClient) Nickname() string {
+	return clientNickname(rc.ClientInterface)
 }
 
 func (rc *registeredClient) Close() {
