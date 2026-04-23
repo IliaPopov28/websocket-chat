@@ -60,8 +60,7 @@ func (s *UserStore) GetByNickname(ctx context.Context, nickname string) (*User, 
 
 func isUniqueViolation(err error) bool {
 	// Postgres unique violation = SQLSTATE 23505
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code == "23505"
 	}
 	return false
