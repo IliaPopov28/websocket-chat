@@ -1,0 +1,7 @@
+.git/
+.idea/
+.vscode/
+PROJECT_STATUS.md
+*.md
+node_modules/
+vendor/

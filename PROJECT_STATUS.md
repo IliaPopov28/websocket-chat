@@ -1,71 +1,69 @@
 # WebSocket Chat — Статус проекта
 
-> Формат работы: код пишется в чате с подробными объяснениями, пользователь переписывает в файлы.
-> Go-опыт у пользователя есть, объяснения фокусируются на WebSocket-специфике и архитектуре.
+> Последнее обновление: 20 апреля 2026
+> Ветка: `feat/auth-postgres`
 
 ---
 
-## Текущее состояние (выполнено)
+## Текущее состояние
 
-### Шаг 1. Инициализация модуля и исправление багов ✅
-- Создан `go.mod` — `github.com/IliaPopov28/websocket-chat`
-- Исправлен json-тег `reciptient` → `recipient` в `internal/domain/message.go`
-- Исправлен import `example.com/m/v2/internal/domain` → `github.com/IliaPopov28/websocket-chat/internal/domain` в `internal/hub/hub.go`
-- Опечатка `"unknow"` → `"unknown"` уже была исправлена ранее
-- Установлен `gorilla/websocket`
+### Реализовано
+- WebSocket Hub с моделью `ReadPump`/`WritePump`
+- Публичные и приватные сообщения (JSON через WebSocket)
+- Graceful shutdown с закрытием зарегистрированных клиентов
+- Атомарная регистрация nickname (`RegisterWithResult`) с защитой от TOCTOU
+- JWT-аутентификация: регистрация, логин, валидация токена
+- PostgreSQL-хранилище пользователей через `pgxpool`
+- Origin-проверка WebSocket:
+  - same-origin разрешён
+  - cross-origin только из `ALLOWED_ORIGINS`
+- Встроенный фронтенд через `//go:embed *.html`
+- Docker-инфраструктура (`app + postgres`)
 
-### Шаг 2. Пакет `pkg/protocol/ws.go` — обёртка над WebSocket ✅
-- `Connection` — обёртка над `*websocket.Conn`
-- `Upgrader` — HTTP → WebSocket upgrade (CheckOrigin: true для разработки)
-- `ReadJSON` / `WriteJSON` — JSON-сериализация с дедлайнами
-- `WriteControl` — отправка управляющих сообщений (ping/pong/close)
-- `Close` — корректное закрытие с close-кодом
-- `RawConn` — доступ к сырому `*websocket.Conn`
+### Проверки качества
+- `go test ./...`
+- `go build ./...`
+- `go vet ./...`
+- `golangci-lint run ./...`
 
-### Шаг 3. Пакет `internal/hub/client.go` — Client с ReadPump/WritePump ✅
-- `Client` — структура: nickname, hub, conn, send (буферизованный канал)
-- `NewClient` — конструктор с буфером send = 256
-- `Nickname()` — реализация интерфейса для hub.go
-- `ReadPump` — горутина чтения:
-  - defer: unregister + Close
-  - PongHandler для продления read deadline
-  - Читает JSON, заполняет Sender/Timestamp
-  - PublicMessage → hub.Broadcast()
-  - PrivateMessage → hub.SendTo() или ErrorMessage обратно
-- `WritePump` — горутина записи:
-  - select: send канал + ping-тикер (pingPeriod = 40с)
-  - Batch-оптимизация: склейка сообщений в один WS-фрейм
-  - Ping для проверки живости, CloseNormalClosure при выходе
+### Текущие тесты
+- `internal/hub/hub_test.go`
+  - отключение клиентов при `Shutdown()`
+  - отклонение дубликата nickname
+- `pkg/protocol/ws_test.go`
+  - same-origin handshake проходит
+  - foreign origin по умолчанию отклоняется
+  - allowlist origin принимается
 
 ---
 
-## Осталось реализовать
+## Статус прошлых проблем (ревью 15.04.2026)
 
-### Шаг 4. Пакет `internal/transport/handler.go` — HTTP обработчики
-- WebSocket upgrade handler (`/ws?nick=...`)
-- HTTP handler для раздачи статики (`/`)
-- Парсинг nickname из query параметров
-- Валидация ника (не пустой, проверка на существование через Hub)
+### Закрыто
+1. `send on closed channel` в `Client.Send()`
+2. конкурентные записи в WebSocket при закрытии
+3. race condition при `Shutdown()`
+4. TOCTOU при проверке дубликата nickname
+5. `CheckOrigin: return true` (origin-защита восстановлена)
+6. ошибки `errcheck` для дедлайнов/записи
 
-### Шаг 5. Файл `cmd/server/main.go` — точка входа
-- Создание Hub, запуск `hub.Run()` в горутине
-- Настройка HTTP сервера (mux, static files, ws handler)
-- Graceful shutdown (os/signal + context)
+### Остаётся актуальным
+1. JWT всё ещё передаётся в query-параметре (`/ws?token=...`)
+2. нет rate limiting на `/api/register` и `/api/login`
+3. нет CI-пайплайна для `test/build/vet/lint`
+4. тестов нет для `internal/auth`, `internal/transport`, `internal/store/postgres`
 
-### Шаг 6. Файл `web/index.html` — фронтенд чата
-- HTML + CSS + vanilla JS
-- WebSocket API, отправка/получение JSON-сообщений
-- UI: ввод ника, поле сообщений, список пользователей
+---
 
-### Шаг 7. Запуск и тестирование
-- `go run cmd/server/main.go`
-- Несколько вкладок, проверка чата, приватных сообщений
+## Константы runtime (актуально)
 
-### Шаг 8. Улучшения (опционально)
-- Команды в чате (`/list`, `/msg <nick> <text>`)
-- Логирование через slog
-- Конфигурация через env-переменные
-- Тесты на Hub
+```go
+// internal/hub/client.go
+writeWait      = 20 * time.Second
+pongWait       = 20 * time.Second
+pingPeriod     = pongWait * 2 / 3
+maxMessageSize = 1024 * 1024
+```
 
 ---
 
@@ -73,44 +71,20 @@
 
 ```
 websocket-chat/
-  cmd/
-    server/
-      main.go              # TODO (Шаг 5)
+  cmd/server/main.go              # Точка входа, конфигурация, graceful shutdown
   internal/
-    domain/
-      errors.go            # ✅ Готово
-      message.go           # ✅ Готово (исправлен тег)
-      user.go              # ✅ Готово
-    hub/
-      client.go            # ✅ Готово (Шаг 3)
-      hub.go               # ✅ Готово (исправлен import)
-    transport/
-      handler.go           # TODO (Шаг 4)
-  pkg/
-    protocol/
-      ws.go                # ✅ Готово (Шаг 2)
-  web/
-    index.html             # TODO (Шаг 6)
-  go.mod                   # ✅ Создан
-  go.sum                   # ✅ (после go mod tidy)
-  LICENSE                  # ✅ MIT
+    auth/service.go               # JWT аутентификация
+    domain/                       # Доменные модели
+    hub/                          # Hub и клиентские pump-горутины
+    store/postgres/               # Хранилище пользователей в PostgreSQL
+    transport/handler.go          # HTTP/WebSocket хендлеры
+  migrations/001_create_users.sql
+  pkg/protocol/ws.go              # WebSocket-обёртка и origin-check
+  web/index.html                  # Встроенный фронтенд
+  web/web.go                      # go:embed *.html
+  docker-compose.yml
+  Dockerfile
+  AGENTS.md
+  QWEN.md
+  CODEX.md
 ```
-
----
-
-## Константы (из client.go)
-
-```go
-writeWait      = 20 * time.Second  // дедлайн записи
-pongWait       = 60 * time.Second  // макс. время ожидания pong
-pingPeriod     = pongWait * 2 / 3  // ~40с, интервал ping
-maxMessageSize = 1024 * 1024       // 1MB
-```
-
----
-
-## Как продолжить в новой сессии
-
-1. Загрузить этот файл как контекст
-2. Следующий шаг — **Шаг 4** (transport handler)
-3. Формат: код в чате с объяснениями → пользователь переписывает в файлы
